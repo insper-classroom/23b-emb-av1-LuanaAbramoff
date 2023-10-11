@@ -31,13 +31,17 @@ void RTT_init(float freqPrescale, uint32_t IrqNPulses, uint32_t rttIRQSource);
 /************************************************************************/
 /* rtos vars                                                            */
 /************************************************************************/
-
+SemaphoreHandle_t xBtnSemaphore;
+QueueHandle_t xQueueCoins;
 
 /************************************************************************/
 /* RTOS application funcs                                               */
 /************************************************************************/
 #define TASK_OLED_STACK_SIZE                (1024*6/sizeof(portSTACK_TYPE))
 #define TASK_OLED_STACK_PRIORITY            (tskIDLE_PRIORITY)
+
+#define TASK_COINS_STACK_SIZE                (1024*6/sizeof(portSTACK_TYPE))
+#define TASK_COINS_STACK_PRIORITY            (tskIDLE_PRIORITY)
 
 extern void vApplicationStackOverflowHook(xTaskHandle *pxTask,  signed char *pcTaskName);
 extern void vApplicationIdleHook(void);
@@ -63,6 +67,8 @@ extern void vApplicationMallocFailedHook(void) {
 /************************************************************************/
 
 void but_callback(void) {
+	BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+	xSemaphoreGiveFromISR(xBtnSemaphore, &xHigherPriorityTaskWoken);
 
 }
 
@@ -70,6 +76,23 @@ void but_callback(void) {
 /************************************************************************/
 /* TASKS                                                                */
 /************************************************************************/
+
+static void task_coins (void *pvParameters){
+	
+	
+	
+	int coins;
+	
+	
+	for(;;){
+		if( xSemaphoreTake(xBtnSemaphore, 500 / portTICK_PERIOD_MS) == pdTRUE ){
+			//int coins = (rand() % 3) + 1;
+			double tempo = rtt_read_timer_value(RTT);
+			printf("%lf",tempo);
+		}
+	}
+	
+}
 
 
 static void task_debug(void *pvParameters) {
@@ -173,10 +196,36 @@ int main(void) {
 	/* Initialize the console uart */
 	configure_console();
 	
+	/* Inicializar botão */
+	btn_init();
+	
+	// cria semáforo binário
+	xBtnSemaphore = xSemaphoreCreateBinary();
+
+	// verifica se semáforo foi criado corretamente
+	if (xBtnSemaphore == NULL){
+		printf("falha em criar o semaforo \n");
+	}
+	
+	// cria fila de 32 slots de char
+	xQueueCoins = xQueueCreate(32, sizeof(int));
+
+	// verifica se fila foi criada corretamente
+	if (xQueueCoins == NULL){
+		printf("falha em criar a fila \n");
+	}
+		
+	
 	if (xTaskCreate(task_debug, "debug", TASK_OLED_STACK_SIZE, NULL,
 	TASK_OLED_STACK_PRIORITY, NULL) != pdPASS) {
 		printf("Failed to create debug task\r\n");
 	}
+	
+	if (xTaskCreate(task_coins, "coins", TASK_COINS_STACK_SIZE, NULL, TASK_COINS_STACK_PRIORITY, NULL) != pdPASS) {
+		printf("Failed to create coins task\r\n");
+	}
+	
+	RTT_init(1000, 5,RTT_MR_ALMIEN);
 
 	/* Start the scheduler. */
 	vTaskStartScheduler();
